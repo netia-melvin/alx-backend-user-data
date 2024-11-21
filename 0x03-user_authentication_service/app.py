@@ -1,45 +1,37 @@
 #!/usr/bin/env python3
-"""A simple Flask app with user authentication features.
 """
-from flask import Flask, jsonify, request, abort, redirect
-
+Flask app
+"""
 from auth import Auth
-
+from flask import Flask, abort, jsonify, request, redirect, url_for
 
 app = Flask(__name__)
+app.url_map.strict_slashes = False
+app.config["JSONIFY_PRETTYPRINT_REGULAR"] = True
 AUTH = Auth()
 
 
-@app.route("/", methods=["GET"], strict_slashes=False)
-def index() -> str:
-    """GET /
-    Return:
-        - The home page's payload.
+@app.route("/")
+def home() -> str:
+    """ Home endpoint
+        Return:
+            - Logout message JSON represented
     """
     return jsonify({"message": "Bienvenue"})
 
 
-@app.route("/users", methods=["POST"], strict_slashes=False)
-def users() -> str:
-    """POST /users
-    Return:
-        - The account creation payload.
+@app.route("/sessions", methods=["POST"])
+def login():
+    """ Login endpoint
+        Form fields:
+            - email
+            - password
+        Return:
+            - user email and login message JSON represented
+            - 401 if credential are invalid
     """
-    email, password = request.form.get("email"), request.form.get("password")
-    try:
-        AUTH.register_user(email, password)
-        return jsonify({"email": email, "message": "user created"})
-    except ValueError:
-        return jsonify({"message": "email already registered"}), 400
-
-
-@app.route("/sessions", methods=["POST"], strict_slashes=False)
-def login() -> str:
-    """POST /sessions
-    Return:
-        - The account login payload.
-    """
-    email, password = request.form.get("email"), request.form.get("password")
+    email = request.form.get("email")
+    password = request.form.get("password")
     if not AUTH.valid_login(email, password):
         abort(401)
     session_id = AUTH.create_session(email)
@@ -48,67 +40,86 @@ def login() -> str:
     return response
 
 
-@app.route("/sessions", methods=["DELETE"], strict_slashes=False)
-def logout() -> str:
-    """DELETE /sessions
-    Return:
-        - Redirects to home route.
+@app.route("/sessions", methods=["DELETE"])
+def logout():
+    """ Logout endpoint
+        Return:
+            - redirect to home page
     """
     session_id = request.cookies.get("session_id")
     user = AUTH.get_user_from_session_id(session_id)
-    if user is None:
+    if not user:
         abort(403)
     AUTH.destroy_session(user.id)
-    return redirect("/")
+    return redirect(url_for("home"))
 
 
-@app.route("/profile", methods=["GET"], strict_slashes=False)
+@app.route("/users", methods=["POST"])
+def users():
+    """ New user signup endpoint
+        Form fields:
+            - email
+            - password
+    """
+    email = request.form.get("email")
+    password = request.form.get("password")
+    try:
+        AUTH.register_user(email, password)
+        return jsonify({"email": email, "message": "user created"})
+    except ValueError:
+        return jsonify({"message": "email already registered"}), 400
+
+
+@app.route("/profile")
 def profile() -> str:
-    """GET /profile
-    Return:
-        - The user's profile information.
+    """ User profile endpoint
+        Return:
+            - user email JSON represented
+            - 403 if session_id is not linked to any user
     """
     session_id = request.cookies.get("session_id")
     user = AUTH.get_user_from_session_id(session_id)
-    if user is None:
+    if not user:
         abort(403)
     return jsonify({"email": user.email})
 
 
-@app.route("/reset_password", methods=["POST"], strict_slashes=False)
+@app.route("/reset_password", methods=["POST"])
 def get_reset_password_token() -> str:
-    """POST /reset_password
-    Return:
-        - The user's password reset payload.
+    """ Reset password token endpoint
+        Form fields:
+            - email
+        Return:
+            - email and reset token JSON represented
+            - 403 if email is not associated with any user
     """
     email = request.form.get("email")
-    reset_token = None
     try:
         reset_token = AUTH.get_reset_password_token(email)
     except ValueError:
-        reset_token = None
-    if reset_token is None:
         abort(403)
+
     return jsonify({"email": email, "reset_token": reset_token})
 
 
-@app.route("/reset_password", methods=["PUT"], strict_slashes=False)
-def update_password() -> str:
-    """PUT /reset_password
-
-    Return:
-        - The user's password updated payload.
+@app.route("/reset_password", methods=["PUT"])
+def update_password():
+    """ Password update endpoint
+        Form fields:
+            - email
+            - reset_token
+            - new_password
+        Return:
+            - user email and password update message JSON represented
+            - 403 if reset token is not provided or not linked to any user
     """
     email = request.form.get("email")
-    reset_token = request.form.get("reset_token")
     new_password = request.form.get("new_password")
-    is_password_changed = False
+    reset_token = request.form.get("reset_token")
+
     try:
         AUTH.update_password(reset_token, new_password)
-        is_password_changed = True
     except ValueError:
-        is_password_changed = False
-    if not is_password_changed:
         abort(403)
     return jsonify({"email": email, "message": "Password updated"})
 
